@@ -1,0 +1,351 @@
+views..............
+from django.db.models import Count
+from django.shortcuts import render
+from .models import Ipl
+import csv, io
+from django.contrib import messages
+import pandas as pd
+from flask_sqlalchemy import sqlalchemy
+from django.http import HttpResponse,JsonResponse
+import json
+from collections import Counter
+
+
+def profile_upload(request):
+    # declaring template
+    template = "profile_upload.html"
+    # data = Profile.objects.all()
+    # prompt is a context variable that can have different values      depending on their context
+    prompt = {
+        'order': 'Order of the CSV should be id, season, city, date, team1',
+        # 'profiles': data
+    }
+    # GET request returns the value of the data with the specified key.
+    if request.method == "GET":
+        return render(request, template, prompt)
+    csv_file = request.FILES['file']
+    # let's check if it is a csv file
+    if csv_file.name.endswith('.csv'):
+        # messages.error(request,'THIS IS NOT A CSV FILE')
+        # data_set = csv_file.read().decode('UTF-8')
+        data_set = pd.read_csv(csv_file)
+        engine = sqlalchemy.create_engine('postgresql://postgres:1992@localhost:5432/matches')
+        data_set.to_sql('files_profile_data', engine, if_exists='replace')
+
+        context = {}
+        return render(request, template, context)
+    else:
+        return HttpResponse(json.dumps({"Note": "Please enter a valid csv file"}))
+
+
+
+def home(request):
+    return render(request, 'home.html')
+
+
+def population_chart(request):
+    labels = []
+    data = []
+
+    queryset = Ipl.objects.values()[:5]
+    for entry in queryset:
+        labels.append(entry['winner'])
+        data.append(entry['win_by_runs'])
+
+
+    return JsonResponse(data={
+        'labels': labels,
+        'data': data,
+    })
+
+
+def pie_chart(request):
+    labels = []
+    data = []
+    output = []
+    count = 0
+
+    queryset = Ipl.objects.values()[:5]
+
+    for city in queryset:
+        labels.append(city["winner"])
+        data.append(city["win_by_runs"])
+
+
+    return render(request, 'pie_chart.html', {
+        'labels': labels,
+        'data': data,
+
+    })
+
+
+def maximum_player_match(request):
+    players=[]
+    players_list=[]
+    labels=[]
+    data=[]
+
+    queryset = Ipl.objects.values("player_of_match")
+
+    for city in queryset:
+        players.append(city)
+    for j in players:
+        players_list.append(j["player_of_match"])
+    output={k: v for k, v in sorted(Counter(players_list).items(), key=lambda item: item[1])}
+    return JsonResponse({
+        'player won maximum number of player of the match': list(output.keys())[-1],
+        'no of times player won':list(output.values())[-1]
+
+    })
+
+def toss_winner(request):
+    players=[]
+    players_list=[]
+
+    queryset = Ipl.objects.values("toss_winner")
+
+    for city in queryset:
+        players.append(city)
+    for j in players:
+        players_list.append(j["toss_winner"])
+
+
+    return JsonResponse({
+        'toss_winner': list(Counter(players_list).keys())[0],
+        'no of times winner won the toss':list(Counter(players_list).values())[0]
+
+    })
+
+def winner(request):
+    players=[]
+    players_list=[]
+
+    queryset = Ipl.objects.values("winner")
+
+    for city in queryset:
+        players.append(city)
+    for j in players:
+        players_list.append(j["winner"])
+        return JsonResponse({
+        'winner': list(Counter(players_list).keys())[0],
+        'no of times won':list(Counter(players_list).values())[0]
+
+    })
+
+.....................................................
+models....
+..........................................................
+from django.db import models
+
+class Ipl(models.Model):
+    Season = models.CharField(max_length=20,default='ABC1234')
+    city = models.CharField(max_length=10)
+    date = models.DateField(default = True)
+    team1 = models.CharField(max_length=20)
+    team2 = models.CharField(max_length=20)
+    toss_winner = models.CharField(max_length=20)
+    toss_decision = models.CharField(max_length=20)
+    result = models.CharField(max_length=20)
+    dl_applied = models.CharField(max_length=20)
+    winner = models.CharField(max_length=20)
+    win_by_runs = models.CharField(max_length=20)
+    win_by_wickets = models.CharField(max_length=20)
+    player_of_match = models.CharField(max_length=20)
+    venue = models.CharField(max_length=20)
+    umpire1 = models.CharField(max_length=20)
+    umpire2 = models.CharField(max_length=20)
+    umpire3 = models.CharField(max_length=20)
+
+    def __str__(self):
+        return self.name
+.......................................................
+pie-charm.html
+........................................................
+{% extends 'base.html' %}
+
+{% block content %}
+  <div id="container" style="width: 75%;">
+    <canvas id="pie-chart"></canvas>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.3/dist/Chart.min.js"></script>
+  <script>
+
+    var config = {
+      type: 'pie',
+      data: {
+        datasets: [{
+          data: {{ data|safe }},
+          backgroundColor: [
+            '#696969', '#808080', '#A9A9A9', '#C0C0C0', '#D3D3D3'
+          ],
+          label: 'IPL'
+        }],
+        labels: {{ labels|safe }}
+      },
+      options: {
+        responsive: true
+      }
+    };
+
+    window.onload = function() {
+      var ctx = document.getElementById('pie-chart').getContext('2d');
+      window.myPie = new Chart(ctx, config);
+    };
+
+  </script>
+
+{% endblock %}
+
+..............................................................
+home.html
+...............................................................
+% extends 'base.html' %}
+
+{% block content %}
+
+  <div id="container" style="width: 75%;">
+    <canvas id="population-chart" data-url="{% url 'population-chart' %}"></canvas>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.3/dist/Chart.min.js"></script>
+  <script>
+
+    $(function () {
+
+      var $populationChart = $("#population-chart");
+      $.ajax({
+        url: $populationChart.data("url"),
+        success: function (data) {
+
+          var ctx = $populationChart[0].getContext("2d");
+
+          new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: data.labels,
+              datasets: [{
+                label: 'IPL',
+                backgroundColor: 'blue',
+                data: data.data
+              }]
+            },
+            options: {
+              responsive: true,
+              legend: {
+                position: 'top',
+              },
+              title: {
+                display: true,
+                text: 'IPL Bar Chart'
+              }
+            }
+          });
+
+        }
+      });
+
+    });
+
+  </script>
+
+{% endblock %}
+
+..............................................................
+profile_upoad.html
+...............................................................
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    {% if messages %}
+        {% for message in messages %}
+            <div>
+<!--                | means OR operator-->
+                <strong>{{message|safe}}</strong>
+            </div>
+        {% endfor %}
+    {% else %}
+    {{order}}
+    <form action="" method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <label for="file1"> Upload a file</label>
+        <input type="file" id="file1" name="file">
+        <small>Only accepts CSV files</small>
+        <button type="submit">Upload</button>
+    </form>
+    {% endif %}
+    {% for profile in profiles %}
+    {{profile.name}}
+    {% endfor %}
+</body>
+</html>
+......................................................
+projectname/url.py
+.............................
+from django.contrib import admin
+from django.urls import path
+from django.urls import include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('ipl_matches/', include('ipl_matches.urls')),
+]
+
+...........................................................
+appname/url
+..........................................................
+from django.urls import path
+
+from . import views
+
+
+urlpatterns = [
+    path('upload', views.profile_upload, name='upload'),
+    path('home', views.home, name='home'),
+    path('population-chart/', views.population_chart, name='population-chart'),
+    path('pie-chart/', views.pie_chart, name='pie-chart'),
+    path('maximum_player_match/', views.maximum_player_match, name='maximum_player_match'),
+    path('toss_winner/', views.toss_winner, name='toss_winner'),
+    path('winner/', views.winner, name='winner'),
+]
+
+......................................................
+base.html
+.........................................................
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Django Chart.js Example{% endblock %}</title>
+</head>
+<body>
+
+  <nav>
+    <a href="{% url 'home' %}">Bar Chart Ajax</a> /
+    <a href="{% url 'pie-chart' %}">Pie Chart Embedded</a>
+  </nav>
+
+  {% block content %}{% endblock %}
+
+</body>
+</html>
+.......................................................
+admin
+.......................................................
+from django.contrib import admin
+from .models import Ipl
+
+
+class AuthorAdmin(admin.ModelAdmin):
+    pass
+
+
+
+admin.site.register(Ipl,AuthorAdmin)
+# Register your models here.
+
+
